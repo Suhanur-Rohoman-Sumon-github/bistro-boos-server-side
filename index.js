@@ -1,8 +1,9 @@
 const express = require('express')
 const cors = require('cors')
+const jwt = require('jsonwebtoken');
 const ports = process.env.PORT || 5000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
+require('dotenv').config()
 const app = express()
 
 app.use(cors())
@@ -10,7 +11,7 @@ app.use(express.json())
 
 
 
-const uri = "mongodb+srv://bistro-boos:0JDqiq2xWmm5F2hl@cluster0.eepi0pq.mongodb.net/?retryWrites=true&w=majority";
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.eepi0pq.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -20,6 +21,20 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+const verifyJwt = (req, res, next) => {
+    const athorization = req.headers.authorization
+    if (!athorization) {
+        return res.status(401).send({ error: true, massage: 'unothorized user' })
+    }
+    const token = athorization.split(' ')[1]
+    jwt.verify(token, process.env.JSON_WEBTOKEN, (error, decoded) => {
+        if (error) {
+            return res.status(403).send({ error: true, massage: 'unaouthrized' })
+        }
+        req.decoded = decoded;
+        next()
+    })
+}
 
 async function run() {
     try {
@@ -31,27 +46,60 @@ async function run() {
         const myCart = client.db('bistro-boos').collection('carts')
         const myUser = client.db('bistro-boos').collection('users')
 
+        // jwt tokem stert here
+
+        app.post('/jwt', (req, res) => {
+            const user = req.body
+            const token = jwt.sign(user, process.env.JSON_WEBTOKEN, { expiresIn: '12h' })
+            res.send({ token })
+        })
+
+        // vaerify jwt token
+
+
         // user cullection start here
+
+        // verfy admin there
+        app.get('/users/admin/:email',  async (req, res) => {
+            const email = req.params.email
+            // if (req.decoded.email !== email) {
+            //     res.send({ admin: false })
+            // }
+            const query = { emails: email }
+            const user = await myUser.findOne(query)
+            const result = { admin: user?.rule === 'admin' }
+            res.send(result)
+        })
+
+
         // get all user information in there
+
         app.get('/users', async (req, res) => {
             const result = await myUser.find().toArray()
             res.send(result)
         })
+
+
         // get specific user data
-        app.get('/users/:id',async(req,res)=>{
+
+
+        app.get('/users/:id', async (req, res) => {
             const id = req.params.id
-            const filter ={ _id: new ObjectId(id)}
+            const filter = { _id: new ObjectId(id) }
             const result = await myUser.findOne(filter)
             res.send(result)
         })
+
+
         // user added to the database
+
+
         app.post('/users', async (req, res) => {
             const user = req.body
-            const query = { emails: user.email }
-            console.log(query)
+            const query = { emails: user.emails }
             const existinguser = await myUser.findOne(query)
-            console.log('existinguser', existinguser)
-            if (!existinguser) {
+            // ERROR:! na dile bar bar add hoi na hole onno ta add hoi na just eitai add hoi 
+            if (existinguser) {
                 return res.send({ massage: 'vai already added' })
             }
 
@@ -60,7 +108,9 @@ async function run() {
 
         })
         // update user to admin
-        app.patch('/users/admin/:id', async (req, res) => {
+
+
+        app.patch('/users/admin/:id', verifyJwt, async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) };
             const updatedDoc = {
@@ -77,12 +127,14 @@ async function run() {
                 res.status(500).send('Internal Server Error');
             }
         });
-        app.delete('/users/:id',async(req,res) =>{
+
+        app.delete('/users/:id', async (req, res) => {
             const id = req.params.id
-            const filter = {_id:new ObjectId(id)}
+            const filter = { _id: new ObjectId(id) }
             const result = await myUser.deleteOne(filter)
             res.send(result)
         })
+
 
         //get specific carts data 
 
@@ -92,26 +144,40 @@ async function run() {
             const result = await myCart.findOne(quire)
             res.send(result)
         })
+
+
         // get specific user data form card with quirey
-        app.get('/carts', async (req, res) => {
+
+
+        app.get('/carts', verifyJwt, async (req, res) => {
             const email = req.query.email
             if (!email) {
                 res.send([])
             }
-            else {
-                const query = { email: email }
-                const result = await myCart.find(query).toArray()
-                res.send(result)
+            const decoded = req.decoded;
+            const decodedemail = decoded.email
+            if (email !== decodedemail) {
+                return res.status(403).send({ error: true, massage: 'forbiden asccess' })
             }
-
+            const query = { email: email }
+            const result = await myCart.find(query).toArray()
+            res.send(result)
         })
+
+
         //  post carts data 
+
+
         app.post('/carts', async (req, res) => {
             const data = req.body
             const result = await myCart.insertOne(data)
             res.send(result)
         })
+
+
         // delete cart data
+
+
         app.delete('/carts/:id', async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
@@ -120,6 +186,8 @@ async function run() {
         })
 
         // my shop and tab data here
+
+
         app.get('/menu', async (req, res) => {
             const quire = menu.find()
             const result = await quire.toArray()
